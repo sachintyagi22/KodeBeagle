@@ -164,7 +164,7 @@
         for( var i=0; i < files.length ; i++ ) {
           arr.push( {
             'term' : {
-              'typesourcefile.fileName': files[i].path
+              'fileName': files[i].path
             }
           } )
         }
