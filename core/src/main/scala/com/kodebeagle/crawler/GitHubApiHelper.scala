@@ -35,8 +35,8 @@ import org.json4s.jackson.JsonMethods._
 import scala.util.{Failure, Success, Try}
 
 /**
- * This class relies on Github's {https://developer.github.com/v3/} Api.
- */
+  * This class relies on Github's {https://developer.github.com/v3/} Api.
+  */
 object GitHubApiHelper extends Logger {
 
   implicit val format = DefaultFormats
@@ -45,11 +45,11 @@ object GitHubApiHelper extends Logger {
   var retryCount: Int = 0
 
   /**
-   * Access Github's
-   * [[https://developer.github.com/v3/repos/#list-all-public-repositories List all repositories]]
- *
-   * @param since Specify id of repo to start the listing from. (Pagination)
-   */
+    * Access Github's
+    * [[https://developer.github.com/v3/repos/#list-all-public-repositories List all repositories]]
+    *
+    * @param since Specify id of repo to start the listing from. (Pagination)
+    */
   def getAllGitHubRepos(since: Int): (List[Map[String, String]], Int) = {
     val method = executeMethod(s"https://api.github.com/repositories?since=$since", token)
     val nextSinceValueRaw = Option(method.getResponseHeader("Link").getElements.toList(0).getValue)
@@ -70,10 +70,10 @@ object GitHubApiHelper extends Logger {
   }
 
   /**
-   * Get repository details for an organization.
-   * Access Github's
-   * [[https://developer.github.com/v3/repos/#list-organization-repositories]]
-   */
+    * Get repository details for an organization.
+    * Access Github's
+    * [[https://developer.github.com/v3/repos/#list-organization-repositories]]
+    */
   def getAllGitHubReposForOrg(orgs: String, page: Int): List[RepoFileNameInfo] = {
     val method = executeMethod(s"https://api.github.com/orgs/$orgs/repos?page=$page", token)
     val json = httpGetJson(method).toList
@@ -81,8 +81,8 @@ object GitHubApiHelper extends Logger {
   }
 
   /**
-   * Parallel fetch is not worth trying since github limits per user limit of 5000 Req/hr.
-   */
+    * Parallel fetch is not worth trying since github limits per user limit of 5000 Req/hr.
+    */
   def fetchDetails(repoMap: Map[String, String]): Option[RepoFileNameInfo] = {
     for {
       repo <-
@@ -90,7 +90,17 @@ object GitHubApiHelper extends Logger {
     } yield extractRepoInfo(repo)
   }
 
+
+  def fetchAllDetails(repoMap: Map[String, String]): Option[String] = {
+    for {
+      repo <-
+      httpGetJson(executeMethod("https://api.github.com/repos/" + repoMap("full_name"), token))
+    } yield compact(render(repo))
+
+  }
+
   def extractRepoInfo(repo: JValue): RepoFileNameInfo = {
+
     RepoFileNameInfo((repo \ "owner" \ "login").extract[String],
       (repo \ "id").extract[Int], (repo \ "name").extract[String], (repo \ "fork").extract[Boolean],
       (repo \ "language").extract[String], (repo \ "default_branch").extract[String],
@@ -137,7 +147,9 @@ object GitHubApiHelper extends Logger {
     val (day, month, year) = (cal.get(Calendar.DAY_OF_MONTH), cal.get(Calendar.MONTH),
       cal.get(Calendar.YEAR))
     val githubdir = targetDir + "/" + day + "_" + month + "_" + year
-    if (!new File(githubdir).exists) { new File(githubdir).mkdirs }
+    if (!new File(githubdir).exists) {
+      new File(githubdir).mkdirs
+    }
     githubdir
   }
 
@@ -175,7 +187,7 @@ object GitHubApiHelper extends Logger {
 
   def cloneRepository(r: RepoFileNameInfo, url: String, targetDir: String): Unit = {
     val githubdir = createDirectoryWithDate(targetDir);
-    val filePath =  githubdir +
+    val filePath = githubdir +
       s"/repo~${r.login}~${r.name}~${r.id}~${r.fork}~${r.language}~${r.defaultBranch}" +
       s"~${r.stargazersCount}"
     log.info(s"Downloading $filePath")
@@ -218,8 +230,8 @@ object GitHubRepoCrawlerApp {
     log.info("page count :" + pageCount)
     (1 to pageCount) foreach { page =>
       getAllGitHubReposForOrg(organizationName, page).filter(x => !x.fork && x.language == "Java")
-        .map(x => cloneRepository(x,s"https://github.com/${x.login}/${x.name}",
-        KodeBeagleConfig.githubDir))
+        .map(x => cloneRepository(x, s"https://github.com/${x.login}/${x.name}",
+          KodeBeagleConfig.githubDir))
     }
   }
 
@@ -228,14 +240,14 @@ object GitHubRepoCrawlerApp {
     allGithubRepos.filter(x => x("fork") == "false").distinct
       .flatMap(fetchDetails).distinct.filter(x => x.language == "Java" && !x.fork)
       .map { x =>
-      if (zipOrClone.equalsIgnoreCase("clone")) {
-        cloneRepository(x, s"https://github.com/${x.login}/${x.name}",
-          KodeBeagleConfig.githubDir)
-     } else {
-        retryCount = 0
-        downloadRepository(x, KodeBeagleConfig.githubDir)
+        if (zipOrClone.equalsIgnoreCase("clone")) {
+          cloneRepository(x, s"https://github.com/${x.login}/${x.name}",
+            KodeBeagleConfig.githubDir)
+        } else {
+          retryCount = 0
+          downloadRepository(x, KodeBeagleConfig.githubDir)
+        }
       }
-    }
     next
   }
 }

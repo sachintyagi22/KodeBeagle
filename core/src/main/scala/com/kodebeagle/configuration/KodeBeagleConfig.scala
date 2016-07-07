@@ -46,6 +46,10 @@ object KodeBeagleConfig extends ConfigReader{
   private[kodebeagle] val esRepoTopicIndex: String = get("kodebeagle.es.repoTopicIndex").get
   private[kodebeagle] val esourceFileIndex: String = get("kodebeagle.es.sourceFileIndex").get
 
+  // Metadata Output Directory
+
+  private[kodebeagle] val metadataDir: String = get("kodebeagle.meta.dir").get
+
   def nextToken(arr: Array[String] = githubTokens): String = {
     if (lastIndex == arr.length - 1) {
       lastIndex = 0

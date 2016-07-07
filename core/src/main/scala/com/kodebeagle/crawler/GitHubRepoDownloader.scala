@@ -62,12 +62,32 @@ class GitHubRepoDownloader extends Actor with Logger {
         val nextSince = GitHubRepoMetadataDownloader.getRepoIdFromRange(since)
         self ! DownloadPublicReposMetadata(nextSince)
       } catch {
-        case ex: Exception =>
-          ex.printStackTrace()
-          log.error("Got Exception [" + ex.getMessage + "] Trying to download, " +
-            "waiting for other tokens")
-          self ! DownloadPublicReposMetadata(since)
+
+          case e: Exception => GitHubRepoDownloaderExceptionHandler.
+                                handleDownloadMetaDataException(e)
+                   self ! DownloadPublicReposMetadata(since)
       }
+  }
+
+}
+
+
+ object GitHubRepoDownloaderExceptionHandler extends Logger{
+
+    def handleDownloadMetaDataException(e: Exception): Unit =
+  {
+
+    e match {
+      case ex: NoSuchElementException =>
+
+        log.info("MetaData Download Job Finished. No more repositories available!")
+
+      case ex: Exception =>
+        ex.printStackTrace()
+        log.error("Got Exception [" + ex.getMessage + "] Trying to download, " +
+          "waiting for other tokens")
+
+    }
   }
 
 }
@@ -89,6 +109,7 @@ object GitHubRepoDownloader {
   val repoDownloader = system.actorOf(Props[GitHubRepoDownloader])
 
   val zipActor = system.actorOf(Props[ZipActor])
+
 }
 
 class ZipActor extends Actor {

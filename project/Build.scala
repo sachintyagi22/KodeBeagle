@@ -137,10 +137,13 @@ object KodeBeagleBuild extends Build {
 
 object Dependencies {
 
+  val vfs = "org.apache.commons" % "commons-vfs2" % "2.1"
+  val hdfsclient = "org.apache.hadoop" % "hadoop-client" % "2.7.2"
+
   val scalastyle = "org.scalastyle" %% "scalastyle" % "0.7.0"
   // Needed for scala parsing.
   val spark = "org.apache.spark" %% "spark-core" % "1.4.1"
-  //"org.apache.spark" %% "spark-core" % "1.3.1" // % "provided" Provided makes it not run through sbt run.
+  // "org.apache.spark" %% "spark-core" % "1.3.1" // % "provided" Provided makes it not run through sbt run.
   val parserCombinator = "org.scala-lang.modules" %% "scala-parser-combinators" % "1.0.3"
   val scalaTest = "org.scalatest" %% "scalatest" % "2.2.4" % "test"
   val slf4j = "org.slf4j" % "slf4j-log4j12" % "1.7.10"
@@ -159,7 +162,8 @@ object Dependencies {
   val junit = "junit" % "junit" % "4.12"
   val rhino = "org.mozilla" % "rhino" % "1.7R4"
 
-  //Eclipse dependencies for Tassal libs
+
+  // Eclipse dependencies for Tassal libs
   object EclipseDeps {
     val tycho = "org.eclipse.tycho" % "org.eclipse.jdt.core" % "3.10.0.v20140604-1726"
     val contentType = "org.eclipse.birt.runtime" % "org.eclipse.core.contenttype" % "3.4.200.v20130326-1255"
@@ -175,7 +179,7 @@ object Dependencies {
     val allDeps = Seq(tycho, contentType, coreJobs, coreResources, coreRT, eqCommon, eqPref, eqReg, osgi, text)
   }
 
-  val kodebeagle = Seq(akka, httpClient, scalastyle, spark, parserCombinator, scalaTest, slf4j, javaparser, json4s, config,
+  val kodebeagle = Seq( vfs, hdfsclient, akka, httpClient, scalastyle, spark, parserCombinator, scalaTest, slf4j, javaparser, json4s, config,
     json4sJackson, jgit, commonsIO, esSpark, graphx, guava, compress, junit, rhino) ++ EclipseDeps.allDeps
 
   val ideaPluginTest = Seq(scalaTest, commonsIO)

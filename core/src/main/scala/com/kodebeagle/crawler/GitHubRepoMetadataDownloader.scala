@@ -17,8 +17,9 @@
 
 package com.kodebeagle.crawler
 
-import java.io.PrintWriter
+import java.io.{BufferedInputStream, BufferedOutputStream, PrintWriter}
 
+import com.kodebeagle.configuration.KodeBeagleConfig
 import com.kodebeagle.crawler.GitHubApiHelper._
 import com.kodebeagle.crawler.GitHubRepoDownloader.DownloadPublicReposMetadata
 import com.kodebeagle.logging.Logger
@@ -35,20 +36,17 @@ object GitHubRepoMetadataDownloader extends App with Logger {
     val (allGithubRepos, next) = getAllGitHubRepos(since)
     log.info("#### Saving repo metadata json to file")
     val repoMetadataList = allGithubRepos.filter(x => x("fork") == "false").distinct
-      .flatMap(fetchDetails).distinct
-      .map { x =>
-      val url = s"https://github.com/${x.login}/${x.name}"
-      RepoMetaData(x.name, x.id.toString, url, x.login, x.language, x.defaultBranch,
-        x.fork, x.stargazersCount)
-    }
-    val repoMetadataJson = repoMetadataList.map { a => toJson(a) + "\n" }
-    val printWriter = new PrintWriter("/opt/repoMetadata/" + since + ".txt")
+      .flatMap(fetchAllDetails).distinct
+
+    val repoMetadataJson = repoMetadataList.map { a => a + "\n" }
+    val printWriter = new PrintWriter("" + KodeBeagleConfig.metadataDir + since + ".txt")
+
     repoMetadataJson.foreach { a => printWriter.write(a) }
     printWriter.close
     next
   }
 
-  def toJson[T <: AnyRef <% Product](t: T, addESHeader: Boolean = true,
+  /* def toJson[T <: AnyRef <% Product](t: T, addESHeader: Boolean = true,
                                      isToken: Boolean = false): String = {
     import org.json4s._
     import org.json4s.jackson.Serialization
@@ -60,5 +58,5 @@ object GitHubRepoMetadataDownloader extends App with Logger {
          |""".stripMargin + write(t)
     } else "" + write(t)
 
-  }
+  } */
 }
