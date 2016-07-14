@@ -52,7 +52,7 @@ import java.util.Map.Entry;
  * <li>For each Type reference node, resolve the type to its fully qualified
  * name. E.g. in statement Type t = TypeFactory.getType(); 'Type' and
  * 'TypeFactory' nodes will be resolved to their fully qualified names at the
- * llocation.
+ * location.
  *
  * </ol>
  *
@@ -142,12 +142,12 @@ public class TypeResolver extends ASTVisitor {
 		return nodeScopes;
 	}
 
-	/**
-	 * Add the binding to the current scope.
-	 *
-	 * @param scopeBindings
-	 * @param name
-	 */
+    /**
+     * Add the binding to the current scope.
+     * @param node
+     * @param name
+     * @param type
+     */
 	private void addBinding(final ASTNode node, final SimpleName name,
 			final Type type) {
 		final int bindingId = nextVarId;
@@ -303,7 +303,7 @@ public class TypeResolver extends ASTVisitor {
 
 	/**
 	 * Visits {@link SimpleName} AST nodes. Resolves the binding of the simple
-	 * name and looks for it in the {@link #variableScope} map. If the binding
+	 * name and looks for it in the {variableScope} map. If the binding
 	 * is found, this is a reference to a variable.
 	 *
 	 * @param node
@@ -346,7 +346,7 @@ public class TypeResolver extends ASTVisitor {
 	/**
 	 * Looks for local variable declarations. For every declaration of a
 	 * variable, the parent {@link Block} denoting the variable's scope is
-	 * stored in {@link #variableScope} map.
+	 * stored in {variableScope} map.
 	 *
 	 * @param node
 	 *            the node to visit

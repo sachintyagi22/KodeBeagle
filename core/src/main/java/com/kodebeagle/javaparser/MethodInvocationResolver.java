@@ -275,7 +275,7 @@ public class MethodInvocationResolver extends TypeResolver {
 		}
 	}
 
-		public static class MethodDecl {
+	public static class MethodDecl {
 		private String methodName;
 		private Integer argNum;
 		private Integer location;
