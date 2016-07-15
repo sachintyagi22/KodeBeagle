@@ -16,8 +16,13 @@
  */
 package com.kodebeagle.model
 
+import java.io.File
+
+import com.imaginea.kodebeagle.GitHelper.ListFileContents
 import com.kodebeagle.logging.Logger
 import org.apache.hadoop.conf.Configuration
+import org.eclipse.jgit.lib.Repository
+import org.eclipse.jgit.storage.file.FileRepositoryBuilder
 
 /**
   * This is an abstraction over a github repo that is to be analyzed.
@@ -35,7 +40,7 @@ class GithubRepo(val configuration: Configuration, val repoPath: String)
 
   import GithubRepo._
 
-
+  private var _repository: Option[Repository] = None
   private var _files: Option[List[GithubFileInfo]] = None
   private var _stats: Option[RepoStatistics] = None
   private var _languages: Option[Set[String]] = None
@@ -77,9 +82,19 @@ class GithubRepo(val configuration: Configuration, val repoPath: String)
       _languages.get
     })
   }
+
+
+  def repository: Repository = {
+    val builder: FileRepositoryBuilder = new FileRepositoryBuilder
+    builder.setGitDir(new File(repoPath)).readEnvironment.findGitDir.build
+  }
 }
 
+
+
 object GithubRepo {
+
+
 
   case class GithubRepoInfo(login: String, id: Int, name: String, language: String,
                             defaultBranch: String, stargazersCount: Int)
@@ -104,5 +119,13 @@ class GithubFileInfo(filePath: String) extends BaseFileInfo(filePath) {
   override def fileLocation: String = ???
 
   override def repoId: Int = ???
+
+  def getRelatedFiles(n: Int): List[String] = {
+    val repository: Repository = ???
+    ListFileContents.getNRelatedFiles(repository, filePath,n)
+    ???
+  }
+
+
 }
 
