@@ -16,8 +16,19 @@
  */
 package com.kodebeagle.model
 
+import java.io.File
+
 import com.kodebeagle.logging.Logger
+import com.kodebeagle.model.GithubRepo.GithubRepoInfo
 import org.apache.hadoop.conf.Configuration
+import org.eclipse.jgit.lib.{ObjectId, ObjectLoader, Ref, Repository}
+import org.eclipse.jgit.revwalk.{RevCommit, RevTree, RevWalk}
+import org.eclipse.jgit.storage.file.FileRepositoryBuilder
+import org.eclipse.jgit.treewalk.TreeWalk
+
+import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
+import scala.io.Source
 
 /**
   * This is an abstraction over a github repo that is to be analyzed.
@@ -33,9 +44,7 @@ import org.apache.hadoop.conf.Configuration
 class GithubRepo(val configuration: Configuration, val repoPath: String)
   extends Repo with Logger with LazyLoadSupport {
 
-  import GithubRepo._
-
-
+  private var _repository: Option[Repository] = None
   private var _files: Option[List[GithubFileInfo]] = None
   private var _stats: Option[RepoStatistics] = None
   private var _languages: Option[Set[String]] = None
@@ -77,6 +86,52 @@ class GithubRepo(val configuration: Configuration, val repoPath: String)
       _languages.get
     })
   }
+
+  def repository: Repository = {
+    val builder: FileRepositoryBuilder = new FileRepositoryBuilder
+    builder.setGitDir(new File(repoPath)).readEnvironment.findGitDir.build
+  }
+
+  def calculateStats(files: List[GithubFileInfo]): RepoStatistics = ???
+
+  def extractLanguages(files: List[GithubFileInfo]): Set[String] = {
+    val fileLanguages: mutable.Set[String] = mutable.Set[String]()
+    files.map(gitHubFileInfo => fileLanguages
+      .add(gitHubFileInfo.extractLang(gitHubFileInfo.filePath)))
+    fileLanguages.toSet
+  }
+
+
+  def readProject(): List[GithubFileInfo] = {
+    val gitRepo = repository
+
+    val gitHubFilesInfo: ArrayBuffer[GithubFileInfo] =
+      mutable.ArrayBuffer[GithubFileInfo]()
+
+
+    val head: Ref = gitRepo.getRef("HEAD")
+
+    // a RevWalk allows to walk over commits based on some filtering that is
+    // defined
+    val walk: RevWalk = new RevWalk(gitRepo)
+
+    val commit: RevCommit = walk.parseCommit(head.getObjectId)
+    val tree: RevTree = commit.getTree
+
+    // Now use a TreeWalk to iterate over all files in the Tree recursively
+    // We can set Filters to narrow down the results if needed
+    val treeWalk: TreeWalk = new TreeWalk(gitRepo)
+    treeWalk.addTree(tree)
+    treeWalk.setRecursive(true)
+    while (treeWalk.next) {
+      val githubFileInfo = new GithubFileInfo(treeWalk.getPathString,
+        treeWalk.getObjectId(0), gitRepo, repoInfo.get)
+      gitHubFilesInfo.append(githubFileInfo)
+    }
+
+    gitHubFilesInfo.toList
+  }
+
 }
 
 object GithubRepo {
@@ -84,25 +139,36 @@ object GithubRepo {
   case class GithubRepoInfo(login: String, id: Int, name: String, language: String,
                             defaultBranch: String, stargazersCount: Int)
 
-  def readProject(): List[GithubFileInfo] = ???
-
-  def calculateStats(files: List[GithubFileInfo]): RepoStatistics = ???
-
-  def extractLanguages(files: List[GithubFileInfo]): Set[String] = ???
 }
 
-class GithubFileInfo(filePath: String) extends BaseFileInfo(filePath) {
+class GithubFileInfo(filePath: String, objectId: ObjectId, repository: Repository,
+                     githubRepoInfo: GithubRepoInfo) extends BaseFileInfo(filePath) {
 
-  override def extractFileName(path: String): String = ???
+  override def extractFileName(path: String): String = s"${repoFileLocation}/${path}"
 
-  override def readFileContent(name: String): String = ???
+  override def readFileContent(name: String): String = {
+    val loader: ObjectLoader = repository.open(objectId)
+    new String(loader.getBytes(), "UTF-8")
+  }
 
-  override def extractLang(name: String): String = ???
+  override def extractLang(path: String): String = {
+    val fileType: Array[String] = path.split("\\.")
+    if (fileType.length > 1) {
+      fileType(0)
+    }
+    UNKNOWN_LANG
+  }
 
-  override def readSloc(content: String): Int = ???
+  override def readSloc(content: String): Int = {
+    Source.fromString(content).getLines().size
+  }
 
-  override def fileLocation: String = ???
+  override def repoFileLocation: String = {
+    s"${githubRepoInfo.login}/${githubRepoInfo.name}/blob/${githubRepoInfo.defaultBranch}/"
+  }
 
-  override def repoId: Int = ???
+  override def repoId: Int = {
+    githubRepoInfo.id
+  }
 }
 
