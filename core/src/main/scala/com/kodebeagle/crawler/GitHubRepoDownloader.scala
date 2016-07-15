@@ -20,7 +20,11 @@ package com.kodebeagle.crawler
 
 import akka.actor.{Actor, ActorSystem, Props}
 import com.kodebeagle.configuration.KodeBeagleConfig
+import com.kodebeagle.crawler.RemoteActorMaster.{AddGitHubRepoMetaDataDownloadTask, GetGitHubRepoMetaDataDownloadTaskStatus, RequestNextGitHubRepoMetaDataDownloadTask, StartMaster}
+import com.kodebeagle.crawler.RemoteActorWorker.GetNextGitHubRepoMetaDataDownloadTask
+import com.kodebeagle.crawler.metadata.{GitHubRepoMetaDataTaskTracker, GitHubRepoMetadataDownloader}
 import com.kodebeagle.logging.Logger
+
 
 class GitHubRepoDownloader extends Actor with Logger {
 
@@ -32,7 +36,7 @@ class GitHubRepoDownloader extends Actor with Logger {
     case DownloadOrganisationRepos(organisation) => downloadFromOrganization(organisation)
 
     case DownloadJavaScriptRepos(page) =>
-      val corruptRepo = JavaScriptRepoDownloader.startCrawlingFromSkippedCount(page,"")
+      val corruptRepo = JavaScriptRepoDownloader.startCrawlingFromSkippedCount(page, "")
       if (corruptRepo == "") {
         JavaScriptRepoDownloader.pageNumber = JavaScriptRepoDownloader.pageNumber + 1
       }
@@ -41,7 +45,7 @@ class GitHubRepoDownloader extends Actor with Logger {
     case DownloadPublicRepos(since, zipOrClone) =>
       try {
         val nextSince = downloadFromRepoIdRange(since, zipOrClone)
-        self ! DownloadPublicRepos(nextSince,zipOrClone)
+        self ! DownloadPublicRepos(nextSince, zipOrClone)
       } catch {
         case ex: Exception =>
           ex.printStackTrace()
@@ -54,43 +58,15 @@ class GitHubRepoDownloader extends Actor with Logger {
       log.debug(s"rate Limit Remaining is : $rateLimit")
       if (rateLimit == "0") {
         GitHubApiHelper.token = KodeBeagleConfig.nextToken()
-        log.info("limit 0,token changed :" + GitHubApiHelper.token)
+        log.debug("limit 0,token changed :" + GitHubApiHelper.token)
       }
 
-    case DownloadPublicReposMetadata(since) =>
-      try {
-        val nextSince = GitHubRepoMetadataDownloader.getRepoIdFromRange(since)
-        self ! DownloadPublicReposMetadata(nextSince)
-      } catch {
-
-          case e: Exception => GitHubRepoDownloaderExceptionHandler.
-                                handleDownloadMetaDataException(e)
-                   self ! DownloadPublicReposMetadata(since)
-      }
+    case DownloadPublicReposMetadata(from, since, to) =>
+      GitHubRepoMetadataDownloader.handleDownloadRepoMetaData(from, since, to)
   }
 
 }
 
-
- object GitHubRepoDownloaderExceptionHandler extends Logger{
-
-    def handleDownloadMetaDataException(e: Exception): Unit =
-  {
-
-    e match {
-      case ex: NoSuchElementException =>
-
-        log.info("MetaData Download Job Finished. No more repositories available!")
-
-      case ex: Exception =>
-        ex.printStackTrace()
-        log.error("Got Exception [" + ex.getMessage + "] Trying to download, " +
-          "waiting for other tokens")
-
-    }
-  }
-
-}
 
 object GitHubRepoDownloader {
 
@@ -98,7 +74,7 @@ object GitHubRepoDownloader {
 
   case class DownloadPublicRepos(since: Int, zipOrClone: String)
 
-  case class DownloadPublicReposMetadata(since: Int)
+  case class DownloadPublicReposMetadata(from: Int, since: Int, to: Int)
 
   case class DownloadJavaScriptRepos(pageNumber: Int)
 
@@ -110,6 +86,7 @@ object GitHubRepoDownloader {
 
   val zipActor = system.actorOf(Props[ZipActor])
 
+
 }
 
 class ZipActor extends Actor {
@@ -118,4 +95,99 @@ class ZipActor extends Actor {
       import sys.process._
       Process("rm -fr " + filePath).!!
   }
+
 }
+
+class RemoteActorMaster extends Actor with Logger {
+
+
+
+  def receive: PartialFunction[Any, Unit] = {
+
+    case StartMaster() =>
+      GitHubRepoMetaDataTaskTracker.intializeMasterTaskList()
+
+    case RequestNextGitHubRepoMetaDataDownloadTask(previousTask, workerUrl) =>
+      if (!previousTask.eq("")) {
+        GitHubRepoMetaDataTaskTracker.markTaskDone(previousTask)
+      }
+      val nextTask = GitHubRepoMetaDataTaskTracker.getNextTask(workerUrl)
+      if (nextTask.eq("")) {
+
+        log.debug("No More Task Available")
+
+      }
+      sender() ! GetNextGitHubRepoMetaDataDownloadTask(nextTask)
+
+    case GetGitHubRepoMetaDataDownloadTaskStatus =>
+
+      sender() ! GitHubRepoMetaDataTaskTracker.getTaskStatus()
+
+    case AddGitHubRepoMetaDataDownloadTask(task) =>
+
+      GitHubRepoMetaDataTaskTracker.addTask(task)
+
+  }
+
+}
+
+class RemoteActorWorker extends Actor with Logger {
+
+
+
+  def receive: PartialFunction[Any, Unit] = {
+
+    case GetNextGitHubRepoMetaDataDownloadTask(task) =>
+
+      if (task.eq("start")) {
+
+        log.info("Starting the GetNextGitHubRepoMetaDataDownloadTask Worker")
+        RemoteActorMaster.remoteActorMaster ! RequestNextGitHubRepoMetaDataDownloadTask("", "")
+
+      } else if (task.eq("")) {
+
+        log.info("No Task returned from master. Retrying...")
+        RemoteActorMaster.remoteActorMaster ! RequestNextGitHubRepoMetaDataDownloadTask(task, "")
+
+      } else {
+
+        val range = task.split("-")
+
+        GitHubRepoMetadataDownloader.startGitHubRepoMetadataDownloader(
+          range(0).toInt, range(1).toInt)
+
+      }
+
+
+  }
+
+}
+
+
+object RemoteActorMaster {
+
+  val system = ActorSystem("RemoteActorMaster")
+  val remoteActorMaster = system.actorOf(Props[RemoteActorMaster])
+
+  case class StartMaster()
+
+  case class RequestNextGitHubRepoMetaDataDownloadTask(previousTask: String, workerUrl: String)
+
+  case class GetGitHubRepoMetaDataDownloadTaskStatus()
+
+  case class AddGitHubRepoMetaDataDownloadTask(task: String)
+
+}
+
+object RemoteActorWorker {
+
+  val system = ActorSystem("RemoteActorWorker")
+
+  val remoteActorWorker = system.actorOf(Props[RemoteActorWorker])
+
+  case class GetNextGitHubRepoMetaDataDownloadTask(task: String)
+
+
+}
+
+

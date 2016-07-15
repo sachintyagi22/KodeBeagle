@@ -25,8 +25,8 @@ import com.kodebeagle.configuration.KodeBeagleConfig
 import com.kodebeagle.crawler.GitHubRepoDownloader._
 import com.kodebeagle.indexer.RepoFileNameInfo
 import com.kodebeagle.logging.Logger
-import org.apache.commons.httpclient.HttpClient
 import org.apache.commons.httpclient.methods.GetMethod
+import org.apache.commons.httpclient.{HttpClient, MultiThreadedHttpConnectionManager}
 import org.apache.commons.io.FileUtils
 import org.eclipse.jgit.api.CloneCommand
 import org.json4s._
@@ -40,7 +40,12 @@ import scala.util.{Failure, Success, Try}
 object GitHubApiHelper extends Logger {
 
   implicit val format = DefaultFormats
-  private val client = new HttpClient()
+ // private val client = new HttpClient()
+  private val connectionManager =
+    new MultiThreadedHttpConnectionManager()
+        connectionManager.getParams().setMaxTotalConnections(500)
+        connectionManager.getParams().setDefaultMaxConnectionsPerHost(500)
+  private val client = new HttpClient(connectionManager)
   var token: String = KodeBeagleConfig.githubTokens(0)
   var retryCount: Int = 0
 
@@ -56,7 +61,7 @@ object GitHubApiHelper extends Logger {
     val nextSince = nextSinceValueRaw.get.substring(0, nextSinceValueRaw.get.length - 1).toInt
     val json = httpGetJson(method).toList
     // Here we can specify all the fields we need from repo query.
-    val interestingFields = List("full_name", "fork")
+    val interestingFields = List("id","full_name", "fork")
     val allGitHubRepos = for {
       j <- json
       c <- j.children
@@ -118,15 +123,22 @@ object GitHubApiHelper extends Logger {
      * (It it important to stick with the current version and all.)
      */
   def httpGetJson(method: GetMethod): Option[JValue] = {
-    val status = method.getStatusCode
-    if (status == 200) {
-      // ignored parsing errors if any, because we can not do anything about them anyway.
-      Try(parse(method.getResponseBodyAsString)).toOption
-    } else {
-      log.error("Request failed with status:" + status + "Response:"
-        + method.getResponseHeaders.mkString("\n") +
-        "\nResponseBody " + method.getResponseBodyAsString)
-      None
+    try {
+      val status = method.getStatusCode
+      if (status == 200) {
+        // ignored parsing errors if any, because we can not do anything about them anyway.
+        Try(parse(method.getResponseBodyAsString)).toOption
+      } else {
+        log.error("Request failed with status:" + status + "Response:"
+          + method.getResponseHeaders.mkString("\n") +
+          "\nResponseBody " + method.getResponseBodyAsString)
+        None
+      }
+    }
+    finally {
+
+      method.releaseConnection()
+
     }
   }
 
@@ -135,7 +147,8 @@ object GitHubApiHelper extends Logger {
     method.setDoAuthentication(true)
     // Please add the oauth token instead of <token> here. Or github may give 403/401 as response.
     method.addRequestHeader("Authorization", s"token $token")
-    log.debug(s"using token $token")
+    log.debug(s"$url using token $token")
+    // val client = new HttpClient()
     client.executeMethod(method)
     val requestLimitRemaining = method.getResponseHeader("X-RateLimit-Remaining").getValue
     repoDownloader ! RateLimit(requestLimitRemaining)
