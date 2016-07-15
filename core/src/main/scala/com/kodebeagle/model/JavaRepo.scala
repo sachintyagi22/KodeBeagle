@@ -107,7 +107,7 @@ class JavaFileInfo(baseFile: FileInfo) extends FileInfo with LazyLoadSupport {
 
   override def repoId: Int = baseFile.repoId
 
-  override def fileLocation: String = baseFile.fileLocation
+  override def repoFileLocation: String = baseFile.repoFileLocation
 }
 
 class JavaRepoStatistics(repoStatistics: RepoStatistics) extends RepoStatistics {

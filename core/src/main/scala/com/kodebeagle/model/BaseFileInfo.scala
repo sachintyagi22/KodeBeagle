@@ -29,7 +29,7 @@ abstract class BaseFileInfo(val filePath: String) extends Serializable
   // This extracts file name from path, without verifying if the file actually exists.
   def fileName: String = {
     getOrCompute(_fileName, () => {
-      _fileName = Option(extractFileName(filePath))
+      _fileName = Option(extractFileName())
       _fileName.get
     })
   }
@@ -37,32 +37,32 @@ abstract class BaseFileInfo(val filePath: String) extends Serializable
   // This extracts file language from path, without verifying if the file actually exists.
   def language: String = {
     getOrCompute(_language, () => {
-      _language = Option(extractLang(fileName))
+      _language = Option(extractLang())
       _language.get
     })
   }
 
   def fileContent: String = {
     getOrCompute(_fileContent, () => {
-      _fileContent = Option(readFileContent(filePath))
+      _fileContent = Option(readFileContent())
       _fileContent.get
     })
   }
 
   def sloc: Int = {
     getOrCompute(_sloc, () => {
-      _sloc = Option(readSloc(fileContent))
+      _sloc = Option(readSloc())
       _sloc.get
     })
   }
 
-  def extractFileName(path: String): String
+  def extractFileName(): String
 
-  def extractLang(name: String): String
+  def extractLang(): String
 
-  def readFileContent(name: String): String
+  def readFileContent(): String
 
-  def readSloc(content: String): Int
+  def readSloc(): Int
 
 }
 

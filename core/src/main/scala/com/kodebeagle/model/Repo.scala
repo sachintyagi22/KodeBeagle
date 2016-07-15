@@ -32,6 +32,8 @@ trait FileInfo extends Serializable {
     *
     * e.g. the path of file in the repository hierarchy.
     *
+    * repoFileLocation is complete Repository URL of particular file
+    *
     * @return
     */
   def fileName: String
@@ -44,7 +46,7 @@ trait FileInfo extends Serializable {
 
   def repoId: Int
 
-  def fileLocation: String
+  def repoFileLocation: String
 }
 
 trait RepoStatistics {
