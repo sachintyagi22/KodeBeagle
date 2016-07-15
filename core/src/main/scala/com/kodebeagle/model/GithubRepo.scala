@@ -17,6 +17,7 @@
 package com.kodebeagle.model
 
 import java.io.File
+import java.nio.file.{Path, Paths}
 
 import com.kodebeagle.logging.Logger
 import com.kodebeagle.model.GithubRepo.GithubRepoInfo
@@ -92,12 +93,28 @@ class GithubRepo(val configuration: Configuration, val repoPath: String)
     builder.setGitDir(new File(repoPath)).readEnvironment.findGitDir.build
   }
 
-  def calculateStats(files: List[GithubFileInfo]): RepoStatistics = ???
+  def calculateStats(files: List[GithubFileInfo]): RepoStatistics = {
+    var slocSum: Int = 0
+    var sizeSum: Long = 0
+
+    for (fileInfo <- files) {
+      slocSum += fileInfo.readSloc()
+      sizeSum += fileInfo.readFileContent().getBytes.length
+    }
+    val repoStatistics: RepoStatistics = new RepoStatistics {override def sloc: Int = slocSum
+
+      override def fileCount: Int = files.size
+
+      override def size: Long = sizeSum
+    }
+    repoStatistics
+
+  }
 
   def extractLanguages(files: List[GithubFileInfo]): Set[String] = {
     val fileLanguages: mutable.Set[String] = mutable.Set[String]()
     files.map(gitHubFileInfo => fileLanguages
-      .add(gitHubFileInfo.extractLang(gitHubFileInfo.filePath)))
+      .add(gitHubFileInfo.extractLang()))
     fileLanguages.toSet
   }
 
@@ -144,23 +161,26 @@ object GithubRepo {
 class GithubFileInfo(filePath: String, objectId: ObjectId, repository: Repository,
                      githubRepoInfo: GithubRepoInfo) extends BaseFileInfo(filePath) {
 
-  override def extractFileName(path: String): String = s"${repoFileLocation}/${path}"
+  override def extractFileName(): String = {
+    val p: Path = Paths.get(filePath)
+    p.getFileName.toString
+  }
 
-  override def readFileContent(name: String): String = {
+  override def readFileContent(): String = {
     val loader: ObjectLoader = repository.open(objectId)
     new String(loader.getBytes(), "UTF-8")
   }
 
-  override def extractLang(path: String): String = {
-    val fileType: Array[String] = path.split("\\.")
+  override def extractLang(): String = {
+    val fileType: Array[String] = filePath.split("\\.")
     if (fileType.length > 1) {
-      fileType(0)
+      fileType(1)
     }
     UNKNOWN_LANG
   }
 
-  override def readSloc(content: String): Int = {
-    Source.fromString(content).getLines().size
+  override def readSloc(): Int = {
+    Source.fromString(readFileContent()).getLines().size
   }
 
   override def repoFileLocation: String = {
