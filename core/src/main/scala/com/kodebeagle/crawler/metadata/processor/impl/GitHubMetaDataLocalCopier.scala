@@ -46,7 +46,11 @@ class GitHubMetaDataLocalCopier extends GitHubMetaDataRangeProcessor with Logger
               s"KodeBeagleGitHubMetaData_$from-$to*.txt"), new WildcardFileFilter(
         s"KodeBeagleGitHubMetaData_$from-$to*.txt")).iterator().asScala
 
-      for(file <- files) FileUtils.moveFileToDirectory(file,metadataFolder,true)
+      for(file <- files) {
+        FileUtils.deleteQuietly(new File(metadataDir + file.getName()))
+        FileUtils.moveFileToDirectory(file,metadataFolder,true)
+
+      }
 
     }catch {
 

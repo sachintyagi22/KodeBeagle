@@ -129,9 +129,15 @@ object GitHubApiHelper extends Logger {
         // ignored parsing errors if any, because we can not do anything about them anyway.
         Try(parse(method.getResponseBodyAsString)).toOption
       } else {
-        log.error("Request failed with status:" + status + "Response:"
-          + method.getResponseHeaders.mkString("\n") +
-          "\nResponseBody " + method.getResponseBodyAsString)
+
+        if (status == 403 && method.getResponseHeader("X-RateLimit-Remaining").getValue == "0"){
+
+            throw new GitHubTokenLimitExhaustedException("Current Token Exhausted",null)
+
+        }
+
+        log.error("Request failed with status:" + status + "Response:" +
+          "ResponseBody " + method.getResponseBodyAsString)
         None
       }
     }
@@ -140,6 +146,14 @@ object GitHubApiHelper extends Logger {
       method.releaseConnection()
 
     }
+  }
+
+
+  class GitHubTokenLimitExhaustedException(message: String, cause: Throwable)
+        extends RuntimeException(message) {
+    if (cause != Nil) initCause(cause)
+
+    def this(message: String) = this(message, null)
   }
 
   def executeMethod(url: String, token: String): GetMethod = {

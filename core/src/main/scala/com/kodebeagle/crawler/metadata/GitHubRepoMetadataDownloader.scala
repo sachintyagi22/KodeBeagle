@@ -23,9 +23,10 @@ import java.util.UUID
 import com.kodebeagle.configuration.KodeBeagleConfig
 import com.kodebeagle.crawler.metadata.processor.{GitHubMetaDataBunchProcessor, GitHubMetaDataRangeProcessor}
 import com.kodebeagle.crawler.GitHubApiHelper._
-import com.kodebeagle.crawler.{GitHubRepoDownloader, RemoteActorMaster}
+import com.kodebeagle.crawler.{GitHubRepoDownloader, RemoteActorMaster, RemoteActorWorker}
 import com.kodebeagle.crawler.GitHubRepoDownloader.DownloadPublicReposMetadata
-import com.kodebeagle.crawler.RemoteActorMaster.{AddGitHubRepoMetaDataDownloadTask, RequestNextGitHubRepoMetaDataDownloadTask, StartMaster}
+import com.kodebeagle.crawler.RemoteActorMaster.{AddGitHubRepoMetaDataDownloadTask, StartMaster}
+import com.kodebeagle.crawler.RemoteActorWorker.{GetNextGitHubRepoMetaDataDownloadTask, SendErrorStatus, SendStatusAndGetNewTask}
 import com.kodebeagle.logging.Logger
 
 import scala.collection.mutable
@@ -42,8 +43,70 @@ object GitHubRepoMetadataDownloaderTestApp extends App with Logger {
 
 }
 
+object GitHubRepoMetaDataDownloaderSingletonApp extends App with Logger {
+
+  GitHubRepoMetadataDownloader.isUsingRemoteActors = true
+
+  while(true) {
+
+    Try {
+
+      println("1 :: Start Master")
+      println("2 :: Check Status")
+      println("3 :: Submit Task")
+      println("4 :: Start a Worker")
+
+      val optionInput = scala.io.StdIn.readLine()
+
+      optionInput match {
+
+        case "1" => {
+
+          RemoteActorMaster.remoteActorMaster ! StartMaster()
+
+        }
+
+        case "2" => {
+
+          println(GitHubRepoMetaDataTaskTracker.getTaskStatus())
+
+        }
+
+        case "3" => {
+
+          println("Provide the range")
+
+          val taskRangeInput = scala.io.StdIn.readLine()
+
+          // val range = taskRangeInput.split("-")
+
+          RemoteActorMaster.remoteActorMaster ! AddGitHubRepoMetaDataDownloadTask(taskRangeInput)
+
+        }
+
+        case "4" => {
+
+          RemoteActorWorker.remoteActorWorker ! GetNextGitHubRepoMetaDataDownloadTask("start")
+
+        }
+
+
+        case _ =>
+          println("Wrong Input")
+      }
+
+    }
+  }
+
+}
+
+
 
 object GitHubRepoMetadataDownloader extends Logger {
+
+  var isUsingRemoteActors = false
+
+  var isDistributed = false
 
   private val bunchProcessor: GitHubMetaDataBunchProcessor = Class.forName(KodeBeagleConfig
     .metaBunchProcessorImpl).newInstance().asInstanceOf[GitHubMetaDataBunchProcessor]
@@ -95,9 +158,9 @@ object GitHubRepoMetadataDownloader extends Logger {
         log.info("#### Job[" + from + "-" + to +
           "] Finished")
 
-       /* Try(RemoteActorMaster.remoteActorMaster ! RequestNextGitHubRepoMetaDataDownloadTask
-                  ("" + from + "-" + to,"")) */
-
+        if(isUsingRemoteActors) {
+          RemoteActorWorker.remoteActorWorker ! SendStatusAndGetNewTask(from + "-" + to)
+        }
       } else {
 
         GitHubRepoDownloader.repoDownloader ! DownloadPublicReposMetadata(from, next, to)
@@ -105,11 +168,16 @@ object GitHubRepoMetadataDownloader extends Logger {
       }
     } catch {
 
-      case ex: Exception =>
-        ex.printStackTrace()
+      case ex: GitHubTokenLimitExhaustedException =>
+
         log.error("Got Exception [" + ex.getMessage + "] Trying to download, " +
           "waiting for other tokens")
         GitHubRepoDownloader.repoDownloader ! DownloadPublicReposMetadata(from, since, to)
+
+      case ex: Throwable=>
+
+        log.error("Got Exception [" + ex.getMessage + "]",ex)
+        RemoteActorWorker.remoteActorWorker ! SendErrorStatus(from + "-" + to)
     }
 
   }
@@ -138,10 +206,9 @@ object GitHubRepoMetaDataTaskTracker extends Logger {
 
     this.synchronized {
 
-      pendingTask.enqueue(task)
+      if (! pendingTask.exists(p => p.equals(task))) pendingTask.enqueue(task)
 
     }
-
   }
 
   def getNextTask(workerUrl: String): String = {
@@ -150,7 +217,7 @@ object GitHubRepoMetaDataTaskTracker extends Logger {
 
       var nextTask = ""
       Try(nextTask = pendingTask.dequeue())
-      if(!nextTask.eq("")) {
+      if(!nextTask.equals("")) {
         inProgressTask.put(nextTask, workerUrl)
       }
       nextTask
@@ -160,11 +227,22 @@ object GitHubRepoMetaDataTaskTracker extends Logger {
 
   def markTaskDone(task: String): Unit = {
 
-    inProgressTask.synchronized{
+    this.synchronized {
 
       inProgressTask.remove(task)
 
     }
+
+  }
+
+   def restartTask(task: String): Unit = {
+
+      this.synchronized{
+
+        inProgressTask.remove(task)
+        if (! pendingTask.exists(p => p.equals(task))) pendingTask.enqueue(task)
+
+      }
 
   }
 
