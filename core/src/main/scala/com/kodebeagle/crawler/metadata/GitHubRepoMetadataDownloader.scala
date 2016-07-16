@@ -26,8 +26,8 @@ import com.kodebeagle.crawler.GitHubApiHelper._
 import com.kodebeagle.crawler.{GitHubRepoDownloader, RemoteActorMaster, RemoteActorWorker}
 import com.kodebeagle.crawler.GitHubRepoDownloader.DownloadPublicReposMetadata
 import com.kodebeagle.crawler.RemoteActorMaster.{AddGitHubRepoMetaDataDownloadTask, StartMaster}
-import com.kodebeagle.crawler.RemoteActorWorker.{GetNextGitHubRepoMetaDataDownloadTask, SendErrorStatus, SendStatusAndGetNewTask}
-import com.kodebeagle.logging.Logger
+import com.kodebeagle.crawler.RemoteActorWorker.{GetGitHubRepoMetaDataDownloadTaskStatus, GetNextGitHubRepoMetaDataDownloadTask, SendErrorStatus, SendStatusAndGetNewTask}
+import com.kodebeagle.logging.{CustomConsoleAppender, Logger}
 
 import scala.collection.mutable
 import scala.util.{Random, Try}
@@ -43,70 +43,58 @@ object GitHubRepoMetadataDownloaderTestApp extends App with Logger {
 
 }
 
-object GitHubRepoMetaDataDownloaderSingletonApp extends App with Logger {
+
+object GitHubRepoMetaDataDownloaderRemoteMasterApp extends App with Logger {
 
   GitHubRepoMetadataDownloader.isUsingRemoteActors = true
 
-  while(true) {
-
-    Try {
-
-      println("1 :: Start Master")
-      println("2 :: Check Status")
-      println("3 :: Submit Task")
-      println("4 :: Start a Worker")
-
-      val optionInput = scala.io.StdIn.readLine()
-
-      optionInput match {
-
-        case "1" => {
-
-          RemoteActorMaster.remoteActorMaster ! StartMaster()
-
-        }
-
-        case "2" => {
-
-          println(GitHubRepoMetaDataTaskTracker.getTaskStatus())
-
-        }
-
-        case "3" => {
-
-          println("Provide the range")
-
-          val taskRangeInput = scala.io.StdIn.readLine()
-
-          // val range = taskRangeInput.split("-")
-
-          RemoteActorMaster.remoteActorMaster ! AddGitHubRepoMetaDataDownloadTask(taskRangeInput)
-
-        }
-
-        case "4" => {
-
-          RemoteActorWorker.remoteActorWorker ! GetNextGitHubRepoMetaDataDownloadTask("start")
-
-        }
-
-
-        case _ =>
-          println("Wrong Input")
-      }
-
-    }
-  }
+  RemoteActorMaster.remoteActorMaster ! StartMaster()
 
 }
 
+object GitHubRepoMetaDataDownloaderRemoteClientShell extends App with Logger {
+
+  GitHubRepoMetadataDownloader.isUsingRemoteActors = true
+
+  while (true) {
+    org.apache.log4j.Logger.getRootLogger().addAppender(CustomConsoleAppender.console)
+    log.info("1: Check Task Status")
+    log.info("2: Submit Task")
+    log.info("3: Start a worker")
+    org.apache.log4j.Logger.getRootLogger().removeAppender(CustomConsoleAppender.console)
+
+    val option = scala.io.StdIn.readLine()
+
+    option match {
+
+      case "1" =>
+        RemoteActorWorker.remoteActorWorker ! GetGitHubRepoMetaDataDownloadTaskStatus()
+
+      case "2" =>
+        org.apache.log4j.Logger.getRootLogger().addAppender(CustomConsoleAppender.console)
+        log.info("Provide the Repo Id range. e.g. 0-100000")
+        org.apache.log4j.Logger.getRootLogger().removeAppender(CustomConsoleAppender.console)
+        RemoteActorWorker.remoteActorWorker ! RemoteActorWorker
+              .AddGitHubRepoMetaDataDownloadTask(scala.io.StdIn.readLine())
+      case "3" =>
+        RemoteActorWorker.remoteActorWorker ! GetNextGitHubRepoMetaDataDownloadTask("start")
+
+      case _ =>
+        org.apache.log4j.Logger.getRootLogger().addAppender(CustomConsoleAppender.console)
+        log.info("Invalid option")
+        org.apache.log4j.Logger.getRootLogger().removeAppender(CustomConsoleAppender.console)
+
+
+    }
+  }
+}
 
 
 object GitHubRepoMetadataDownloader extends Logger {
 
   var isUsingRemoteActors = false
 
-  var isDistributed = false
+  var currentTask = ""
 
   private val bunchProcessor: GitHubMetaDataBunchProcessor = Class.forName(KodeBeagleConfig
     .metaBunchProcessorImpl).newInstance().asInstanceOf[GitHubMetaDataBunchProcessor]
@@ -145,6 +133,7 @@ object GitHubRepoMetadataDownloader extends Logger {
 
   def handleDownloadRepoMetaData(from: Int, since: Int, to: Int): Any = {
 
+    currentTask = from + "-" + to
     try {
 
       val next: Int = getRepoIdFromRange(from, since, to)
@@ -158,7 +147,7 @@ object GitHubRepoMetadataDownloader extends Logger {
         log.info("#### Job[" + from + "-" + to +
           "] Finished")
 
-        if(isUsingRemoteActors) {
+        if (isUsingRemoteActors) {
           RemoteActorWorker.remoteActorWorker ! SendStatusAndGetNewTask(from + "-" + to)
         }
       } else {
@@ -166,6 +155,7 @@ object GitHubRepoMetadataDownloader extends Logger {
         GitHubRepoDownloader.repoDownloader ! DownloadPublicReposMetadata(from, next, to)
 
       }
+      currentTask = ""
     } catch {
 
       case ex: GitHubTokenLimitExhaustedException =>
@@ -174,10 +164,11 @@ object GitHubRepoMetadataDownloader extends Logger {
           "waiting for other tokens")
         GitHubRepoDownloader.repoDownloader ! DownloadPublicReposMetadata(from, since, to)
 
-      case ex: Throwable=>
+      case ex: Throwable =>
 
-        log.error("Got Exception [" + ex.getMessage + "]",ex)
+        log.error("Got Exception [" + ex.getMessage + "]", ex)
         RemoteActorWorker.remoteActorWorker ! SendErrorStatus(from + "-" + to)
+        currentTask = ""
     }
 
   }
@@ -189,26 +180,42 @@ object GitHubRepoMetaDataTaskTracker extends Logger {
 
   private val pendingTask: mutable.PriorityQueue[String] = mutable.PriorityQueue.empty[String](
     implicitly[Ordering[String]].reverse)
-  private val inProgressTask: mutable.HashMap[String,String] = new mutable.HashMap[String,String]()
+  private val inProgressTask: mutable.HashMap[String, String] =
+    new mutable.HashMap[String, String]()
 
-  def intializeMasterTaskList(): Unit = {
+  def addTask(task: String): String = {
+
+    var errorFlag = true
+    var returnMessage = ""
+    try{
+      val range = task.split("-")
+      if(range(0).toInt > range(1).toInt){
+        log.error("Invalid Task Parameters")
+        returnMessage = "Invalid Task Parameters"
+      }else if (range(0).toInt % KodeBeagleConfig.metaRepoRangeSize.toInt!=0 ||
+        range(1).toInt % KodeBeagleConfig.metaRepoRangeSize.toInt!=0){
+        log.error("Task range values should be multiple of " + KodeBeagleConfig.metaRepoRangeSize)
+        returnMessage = "Task range values" +
+          " should be multiple of " + KodeBeagleConfig.metaRepoRangeSize
+      }else{
+        errorFlag =false
+      }
+    }catch{
+
+      case ex: Exception =>
+        returnMessage = "Error :: " + ex.getMessage()
+    }
 
     this.synchronized {
 
-      log.debug("Initializing GitHubRepoMetaDataTaskTracker!!!")
-
-      
-    }
-
-  }
-
-  def addTask(task: String): Unit = {
-
-    this.synchronized {
-
-      if (! pendingTask.exists(p => p.equals(task))) pendingTask.enqueue(task)
+      if (!errorFlag && !pendingTask.exists(p => p.equals(task))){
+        pendingTask.enqueue(task)
+        log.info("Task Added :: " + task)
+        returnMessage
+      }
 
     }
+    returnMessage
   }
 
   def getNextTask(workerUrl: String): String = {
@@ -217,7 +224,7 @@ object GitHubRepoMetaDataTaskTracker extends Logger {
 
       var nextTask = ""
       Try(nextTask = pendingTask.dequeue())
-      if(!nextTask.equals("")) {
+      if (!nextTask.equals("")) {
         inProgressTask.put(nextTask, workerUrl)
       }
       nextTask
@@ -235,14 +242,14 @@ object GitHubRepoMetaDataTaskTracker extends Logger {
 
   }
 
-   def restartTask(task: String): Unit = {
+  def restartTask(task: String): Unit = {
 
-      this.synchronized{
+    this.synchronized {
 
-        inProgressTask.remove(task)
-        if (! pendingTask.exists(p => p.equals(task))) pendingTask.enqueue(task)
+      inProgressTask.remove(task)
+      if (!pendingTask.exists(p => p.equals(task))) pendingTask.enqueue(task)
 
-      }
+    }
 
   }
 

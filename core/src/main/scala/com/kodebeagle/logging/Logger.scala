@@ -17,8 +17,19 @@
 
 package com.kodebeagle.logging
 
+import org.apache.log4j.{ConsoleAppender, Level, PatternLayout}
 import org.slf4j.LoggerFactory
 
 trait Logger {
   val log = LoggerFactory.getLogger(this.getClass.getName)
+}
+
+object CustomConsoleAppender{
+
+  val console = new ConsoleAppender()
+  private val PATTERN = "%m%n"
+  console.setLayout(new PatternLayout(PATTERN))
+  console.setThreshold(Level.INFO)
+  console.activateOptions()
+
 }

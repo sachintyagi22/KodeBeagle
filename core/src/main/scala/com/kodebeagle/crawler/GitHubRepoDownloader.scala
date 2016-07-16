@@ -22,8 +22,13 @@ import akka.actor.{Actor, ActorSystem, Props}
 import com.kodebeagle.configuration.KodeBeagleConfig
 import com.kodebeagle.crawler.RemoteActorMaster._
 import com.kodebeagle.crawler.RemoteActorWorker.{GetNextGitHubRepoMetaDataDownloadTask, SendErrorStatus, SendStatusAndGetNewTask}
+import com.kodebeagle.crawler.metadata.GitHubRepoMetaDataDownloaderRemoteClientShell._
 import com.kodebeagle.crawler.metadata.{GitHubRepoMetaDataTaskTracker, GitHubRepoMetadataDownloader}
-import com.kodebeagle.logging.Logger
+import com.kodebeagle.logging.{CustomConsoleAppender, Logger}
+import com.typesafe.config.ConfigFactory
+import org.apache.log4j.{ConsoleAppender, Level, PatternLayout}
+
+import scala.util.Try
 
 
 class GitHubRepoDownloader extends Actor with Logger {
@@ -101,12 +106,14 @@ class ZipActor extends Actor {
 
 class RemoteActorMaster extends Actor with Logger {
 
-
-
   def receive: PartialFunction[Any, Unit] = {
 
     case StartMaster() =>
-      GitHubRepoMetaDataTaskTracker.intializeMasterTaskList()
+
+      org.apache.log4j.Logger.getRootLogger().addAppender(CustomConsoleAppender.console)
+      log.info("Master Started!!!")
+      log.info("Master Listening at :: " + RemoteActorMaster.masterUrl)
+      org.apache.log4j.Logger.getRootLogger().removeAppender(CustomConsoleAppender.console)
 
     case RequestNextGitHubRepoMetaDataDownloadTask(previousTask, workerUrl) =>
       if (!previousTask.equals("")) {
@@ -120,13 +127,16 @@ class RemoteActorMaster extends Actor with Logger {
       }
       sender() ! GetNextGitHubRepoMetaDataDownloadTask(nextTask)
 
-    case GetGitHubRepoMetaDataDownloadTaskStatus =>
+    case GetGitHubRepoMetaDataDownloadTaskStatus() =>
 
-      sender() ! GitHubRepoMetaDataTaskTracker.getTaskStatus()
+      log.info("Current Task Status :: " + metadata.GitHubRepoMetaDataTaskTracker.getTaskStatus())
+
+      sender() ! "Current Task Status :: " + metadata.GitHubRepoMetaDataTaskTracker.getTaskStatus()
 
     case AddGitHubRepoMetaDataDownloadTask(task) =>
 
-      GitHubRepoMetaDataTaskTracker.addTask(task)
+        val message = GitHubRepoMetaDataTaskTracker.addTask(task)
+        if(message.length() == 0) sender() ! "Task Added :: " + task else sender() ! message
 
     case ReportErrorStatus(task) =>
       GitHubRepoMetaDataTaskTracker.restartTask(task)
@@ -136,41 +146,45 @@ class RemoteActorMaster extends Actor with Logger {
 
 class RemoteActorWorker extends Actor with Logger {
 
-
-
   def receive: PartialFunction[Any, Unit] = {
 
     case GetNextGitHubRepoMetaDataDownloadTask(task) =>
-
       if (task.equals("start")) {
-
         log.info("Starting the GetNextGitHubRepoMetaDataDownloadTask Worker")
-        RemoteActorMaster.remoteActorMaster ! RequestNextGitHubRepoMetaDataDownloadTask("", "")
+        RemoteActorWorker.remoteActorMaster ! RequestNextGitHubRepoMetaDataDownloadTask("", "")
 
       } else if (task.equals("")) {
-
-        log.info("No Task returned from master. Retrying...")
-        RemoteActorMaster.remoteActorMaster ! RequestNextGitHubRepoMetaDataDownloadTask(task, "")
+        log.debug("No Task returned from master. Retrying...")
+        RemoteActorWorker.remoteActorMaster ! RequestNextGitHubRepoMetaDataDownloadTask(task, "")
 
       } else {
-
         val range = task.split("-")
-
         GitHubRepoMetadataDownloader.startGitHubRepoMetadataDownloader(
           range(0).toInt, range(1).toInt)
-
       }
 
     case SendStatusAndGetNewTask(previousTask) =>
-
-      RemoteActorMaster.remoteActorMaster !
+       RemoteActorWorker.remoteActorMaster !
         RequestNextGitHubRepoMetaDataDownloadTask(previousTask, "")
 
     case SendErrorStatus(task) =>
-
-      RemoteActorMaster.remoteActorMaster ! ReportErrorStatus(task)
-
+      RemoteActorWorker.remoteActorMaster ! ReportErrorStatus(task)
       RemoteActorWorker.remoteActorWorker ! GetNextGitHubRepoMetaDataDownloadTask("start")
+
+    case RemoteActorWorker.AddGitHubRepoMetaDataDownloadTask(task) =>
+      RemoteActorWorker.remoteActorMaster ! AddGitHubRepoMetaDataDownloadTask(task)
+
+    case RemoteActorWorker.GetGitHubRepoMetaDataDownloadTaskStatus() =>
+      RemoteActorWorker.remoteActorMaster ! GetGitHubRepoMetaDataDownloadTaskStatus()
+      org.apache.log4j.Logger.getRootLogger().addAppender(CustomConsoleAppender.console)
+      log.info("Currently processing:: " + GitHubRepoMetadataDownloader.currentTask)
+      org.apache.log4j.Logger.getRootLogger().removeAppender(CustomConsoleAppender.console)
+
+    case messagesFromMaster: String =>
+      org.apache.log4j.Logger.getRootLogger().addAppender(CustomConsoleAppender.console)
+      log.info(messagesFromMaster)
+      org.apache.log4j.Logger.getRootLogger().removeAppender(CustomConsoleAppender.console)
+
   }
 
 }
@@ -178,9 +192,15 @@ class RemoteActorWorker extends Actor with Logger {
 
 object RemoteActorMaster {
 
-  val system = ActorSystem("RemoteActorMaster")
+  val config = ConfigFactory.load("akka_actor_config.conf").getConfig("RemoteActorMaster")
+
+  val system = ActorSystem("RemoteActorMaster",config)
 
   val remoteActorMaster = system.actorOf(Props[RemoteActorMaster], name = "remoteActorMaster")
+
+  val masterUrl= s"akka.tcp://RemoteActorMaster@${config.
+    getString("akka.remote.netty.tcp.hostname")}:${config.
+    getString("akka.remote.netty.tcp.port")}/user/remoteActorMaster"
 
   case class StartMaster()
 
@@ -196,15 +216,30 @@ object RemoteActorMaster {
 
 object RemoteActorWorker {
 
-  val system = ActorSystem("RemoteActorWorker")
+  val config = ConfigFactory.load("akka_actor_config.conf").getConfig("RemoteActorWorker")
+
+  val configMaster = ConfigFactory.load("akka_actor_config.conf").getConfig("RemoteActorMaster")
+
+  val system = ActorSystem("RemoteActorWorker",config)
 
   val remoteActorWorker = system.actorOf(Props[RemoteActorWorker])
+
+  val masterUrl= s"akka.tcp://RemoteActorMaster@${configMaster.
+    getString("akka.remote.netty.tcp.hostname")}:${configMaster.
+    getString("akka.remote.netty.tcp.port")}/user/remoteActorMaster"
+
+  val remoteActorMaster = system.actorSelection(masterUrl)
 
   case class GetNextGitHubRepoMetaDataDownloadTask(task: String)
 
   case class SendStatusAndGetNewTask(previousTask: String)
 
   case class SendErrorStatus(task: String)
+
+  case class AddGitHubRepoMetaDataDownloadTask(task: String)
+
+  case class GetGitHubRepoMetaDataDownloadTaskStatus()
+
 }
 
 
