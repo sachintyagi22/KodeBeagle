@@ -17,20 +17,20 @@
 
 package com.kodebeagle.crawler.metadata
 
-import java.io.{File, FileInputStream, ObjectInputStream}
+import java.io._
 import java.util.UUID
 
 import com.kodebeagle.configuration.KodeBeagleConfig
-import com.kodebeagle.crawler.metadata.processor.{GitHubMetaDataBunchProcessor, GitHubMetaDataRangeProcessor}
 import com.kodebeagle.crawler.GitHubApiHelper._
-import com.kodebeagle.crawler.{GitHubRepoDownloader, RemoteActorMaster, RemoteActorWorker}
 import com.kodebeagle.crawler.GitHubRepoDownloader.DownloadPublicReposMetadata
-import com.kodebeagle.crawler.RemoteActorMaster.{AddGitHubRepoMetaDataDownloadTask, StartMaster}
+import com.kodebeagle.crawler.RemoteActorMaster.StartMaster
 import com.kodebeagle.crawler.RemoteActorWorker.{GetGitHubRepoMetaDataDownloadTaskStatus, GetNextGitHubRepoMetaDataDownloadTask, SendErrorStatus, SendStatusAndGetNewTask}
+import com.kodebeagle.crawler.metadata.processor.{GitHubMetaDataBunchProcessor, GitHubMetaDataRangeProcessor}
+import com.kodebeagle.crawler.{GitHubRepoDownloader, RemoteActorMaster, RemoteActorWorker}
 import com.kodebeagle.logging.{CustomConsoleAppender, Logger}
 
 import scala.collection.mutable
-import scala.util.{Random, Try}
+import scala.util.Try
 
 
 object GitHubRepoMetadataDownloaderTestApp extends App with Logger {
@@ -178,15 +178,19 @@ object GitHubRepoMetadataDownloader extends Logger {
 
 object GitHubRepoMetaDataTaskTracker extends Logger {
 
-  private val pendingTask: mutable.PriorityQueue[String] = mutable.PriorityQueue.empty[String](
+  private var pendingTask: mutable.PriorityQueue[String] = mutable.PriorityQueue.empty[String](
     implicitly[Ordering[String]].reverse)
-  private val inProgressTask: mutable.HashMap[String, String] =
+
+  private var inProgressTask: mutable.HashMap[String, String] =
     new mutable.HashMap[String, String]()
+
+  Try(getPersistedTaskTrackerState())
 
   def addTask(task: String): String = {
 
     var errorFlag = true
     var returnMessage = ""
+
     try{
       val range = task.split("-")
       if(range(0).toInt > range(1).toInt){
@@ -209,7 +213,15 @@ object GitHubRepoMetaDataTaskTracker extends Logger {
     this.synchronized {
 
       if (!errorFlag && !pendingTask.exists(p => p.equals(task))){
-        pendingTask.enqueue(task)
+        val range = task.split("-")
+        val noOfPartitions = range / (range(1) - range(0))
+
+        for(i <- 1 to noOfPartitions){
+
+          pendingTask.enqueue(range(0)*i + "-" + range(0)*i + KodeBeagleConfig.metaRepoRangeSize)
+
+        }
+        persistTaskTrackerState()
         log.info("Task Added :: " + task)
         returnMessage
       }
@@ -227,6 +239,7 @@ object GitHubRepoMetaDataTaskTracker extends Logger {
       if (!nextTask.equals("")) {
         inProgressTask.put(nextTask, workerUrl)
       }
+      persistTaskTrackerState()
       nextTask
 
     }
@@ -237,7 +250,7 @@ object GitHubRepoMetaDataTaskTracker extends Logger {
     this.synchronized {
 
       inProgressTask.remove(task)
-
+      persistTaskTrackerState()
     }
 
   }
@@ -248,14 +261,45 @@ object GitHubRepoMetaDataTaskTracker extends Logger {
 
       inProgressTask.remove(task)
       if (!pendingTask.exists(p => p.equals(task))) pendingTask.enqueue(task)
-
+      persistTaskTrackerState()
     }
 
   }
 
   def getTaskStatus(): String = {
 
-    s"Inprogress:: ${inProgressTask.size} PendingTasks:: ${pendingTask.size}"
+    var inProgressTaskDetails = ""
+
+    for (elem <- inProgressTask) {
+
+      inProgressTaskDetails = inProgressTaskDetails + " " + elem.toString()
+
+    }
+
+    "\nInprogress:: " + inProgressTask.size +
+            " Details:: " + inProgressTaskDetails + "\nPendingTasks:: " + pendingTask.size
+
+  }
+
+  private def persistTaskTrackerState() = {
+
+    val file = new File("KodebeagleMetadataDownloaderTaskTracker.db")
+    file.delete()
+    val fout = new FileOutputStream("KodebeagleMetadataDownloaderTaskTracker.db")
+    val oos = new ObjectOutputStream(fout)
+    oos.writeObject(pendingTask)
+    oos.writeObject(inProgressTask)
+    oos.close()
+
+  }
+
+  private def getPersistedTaskTrackerState() = {
+
+    val fin = new FileInputStream("KodebeagleMetadataDownloaderTaskTracker.db")
+    val ois = new ObjectInputStream(fin)
+    pendingTask =  ois.readObject().asInstanceOf[mutable.PriorityQueue[String]]
+    inProgressTask =  ois.readObject().asInstanceOf[mutable.HashMap[String,String]]
+    ois.close()
 
   }
 }

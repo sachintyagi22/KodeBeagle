@@ -18,15 +18,15 @@
 package com.kodebeagle.crawler
 
 
+import java.net.InetAddress
+
 import akka.actor.{Actor, ActorSystem, Props}
 import com.kodebeagle.configuration.KodeBeagleConfig
 import com.kodebeagle.crawler.RemoteActorMaster._
 import com.kodebeagle.crawler.RemoteActorWorker.{GetNextGitHubRepoMetaDataDownloadTask, SendErrorStatus, SendStatusAndGetNewTask}
-import com.kodebeagle.crawler.metadata.GitHubRepoMetaDataDownloaderRemoteClientShell._
 import com.kodebeagle.crawler.metadata.{GitHubRepoMetaDataTaskTracker, GitHubRepoMetadataDownloader}
 import com.kodebeagle.logging.{CustomConsoleAppender, Logger}
 import com.typesafe.config.ConfigFactory
-import org.apache.log4j.{ConsoleAppender, Level, PatternLayout}
 
 import scala.util.Try
 
@@ -151,11 +151,13 @@ class RemoteActorWorker extends Actor with Logger {
     case GetNextGitHubRepoMetaDataDownloadTask(task) =>
       if (task.equals("start")) {
         log.info("Starting the GetNextGitHubRepoMetaDataDownloadTask Worker")
-        RemoteActorWorker.remoteActorMaster ! RequestNextGitHubRepoMetaDataDownloadTask("", "")
+        RemoteActorWorker.remoteActorMaster !
+          RequestNextGitHubRepoMetaDataDownloadTask("", Try(InetAddress.getLocalHost).toString())
 
       } else if (task.equals("")) {
         log.debug("No Task returned from master. Retrying...")
-        RemoteActorWorker.remoteActorMaster ! RequestNextGitHubRepoMetaDataDownloadTask(task, "")
+        RemoteActorWorker.remoteActorMaster !
+          RequestNextGitHubRepoMetaDataDownloadTask(task, Try(InetAddress.getLocalHost).toString())
 
       } else {
         val range = task.split("-")
@@ -165,7 +167,8 @@ class RemoteActorWorker extends Actor with Logger {
 
     case SendStatusAndGetNewTask(previousTask) =>
        RemoteActorWorker.remoteActorMaster !
-        RequestNextGitHubRepoMetaDataDownloadTask(previousTask, "")
+        RequestNextGitHubRepoMetaDataDownloadTask(previousTask,
+                  Try(InetAddress.getLocalHost).toString())
 
     case SendErrorStatus(task) =>
       RemoteActorWorker.remoteActorMaster ! ReportErrorStatus(task)
