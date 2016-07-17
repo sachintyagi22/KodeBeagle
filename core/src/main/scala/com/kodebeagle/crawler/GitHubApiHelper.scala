@@ -43,8 +43,10 @@ object GitHubApiHelper extends Logger {
  // private val client = new HttpClient()
   private val connectionManager =
     new MultiThreadedHttpConnectionManager()
-        connectionManager.getParams().setMaxTotalConnections(500)
-        connectionManager.getParams().setDefaultMaxConnectionsPerHost(500)
+        connectionManager.getParams().setMaxTotalConnections(
+            KodeBeagleConfig.httpclientNoOfConnections.toInt)
+        connectionManager.getParams().setDefaultMaxConnectionsPerHost(
+            KodeBeagleConfig.httpclientNoOfConnections.toInt)
   private val client = new HttpClient(connectionManager)
   var token: String = KodeBeagleConfig.githubTokens(0)
   var retryCount: Int = 0

@@ -56,6 +56,8 @@ object KodeBeagleConfig extends ConfigReader{
   private[kodebeagle] val metaRangeProcessorImpl: String
               = get("kodebeagle.meta.range.processor.impl").get
 
+  private[kodebeagle] val httpclientNoOfConnections: String
+  = get("kodebeagle.httpclient.noOfConnection").get
 
   def nextToken(arr: Array[String] = githubTokens): String = {
     if (lastIndex == arr.length - 1) {
