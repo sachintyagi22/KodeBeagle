@@ -40,7 +40,7 @@ import java.util.Map;
 
 @SuppressWarnings("rawtypes")
 public class MethodVisitor extends VoidVisitorAdapter<Object> {
-
+// importsMethodsAndLineColumnNumbersList, lineAndColumnsNumbers, getImportDeclMap,
     private List<ImportDeclaration> imports;
     private Map<String, String> importDeclMap = new HashMap<String, String>();
     private Map<String, String> fieldVariableMap = new HashMap<String, String>();

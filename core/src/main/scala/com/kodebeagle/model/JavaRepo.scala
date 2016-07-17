@@ -16,11 +16,13 @@
  */
 package com.kodebeagle.model
 
-import com.kodebeagle.indexer.{ExternalTypeReference, FileMetaData, TypeReference}
+import com.kodebeagle.indexer._
 import com.kodebeagle.javaparser.JavaASTParser.ParseType
 import com.kodebeagle.javaparser.{JavaASTParser, SingleClassBindingResolver}
 import com.kodebeagle.logging.Logger
-import org.eclipse.jdt.core.dom.ASTNode
+import org.eclipse.jdt.core.dom.{CompilationUnit, ASTNode}
+
+import scala.collection.mutable
 
 class JavaRepo(baseRepo: GithubRepo) extends Repo with Logger
   with LazyLoadSupport {
@@ -48,13 +50,13 @@ class JavaFileInfo(baseFile: FileInfo) extends FileInfo with LazyLoadSupport {
   assert(baseFile.fileName.endsWith(".java"),
     s"A java file is expected. Actual file: ${baseFile.fileName}")
 
-  private var _searchableRefs: Option[Set[TypeReference]] = None
+  private var _searchableRefs: Option[Set[ExternalTypeReference]] = None
 
   private var _fileMetaData: Option[Set[FileMetaData]] = None
 
   private var _imports: Option[Set[String]] = None
 
-  def searchableRefs: Set[TypeReference] = {
+  def searchableRefs: Set[ExternalTypeReference] = {
     getOrCompute(_searchableRefs, () => {
       parse()
       _searchableRefs.get
@@ -75,24 +77,61 @@ class JavaFileInfo(baseFile: FileInfo) extends FileInfo with LazyLoadSupport {
     })
   }
 
-  def parse(): (Set[TypeReference], Set[FileMetaData]) = {
+  /**
+    * This method parses the java file and updates all that needs to be exposed by this class.
+    *
+    * The method is called lazily on when the data depending on parse is first requested, and
+    * then all such data is computed and stored in the fields of the class.
+    *
+    * @return
+    */
+  private def parse() = {
     import scala.collection.JavaConversions._
 
     val parser: JavaASTParser = new JavaASTParser(true)
-    val cu: ASTNode = parser.getAST(fileContent, ParseType.COMPILATION_UNIT)
-    val scbr: SingleClassBindingResolver  = new SingleClassBindingResolver(cu)
+    val cu: CompilationUnit = parser.getAST(fileContent, ParseType.COMPILATION_UNIT).asInstanceOf
+    val scbr: SingleClassBindingResolver = new SingleClassBindingResolver(cu)
     scbr.resolve()
 
     val nodeVsType = scbr.getTypesAtPosition
-    val score = ???
-    val types = ???
-    val externalTypeRef = ExternalTypeReference(repoId, fileName, types, score)
+    // TODO: Get this properly
+    val score = 0
+    val externalTypeRefs = scbr.getMethodInvoks.values()
+      // for every method in the class
+      .map(invokList => {
+      // group the method call by the type of object
+      invokList.groupBy(_.getTargetType)
+        // then map the grp to:
+        .map { case (typ, grp) =>
+        // 1. get list of locations where this type was invoked
+        val lineList = grp.map(t => {
+          val line = cu.getLineNumber(t.getLocation)
+          val col = cu.getColumnNumber(t.getLocation)
+          new ExternalLine(line, col, col + t.getLength)
+        }).toList
+
+        // 2. method names invoked of this type along with a list of their respective locations
+        val propSet = grp.groupBy(_.getMethodName).map { case (prop, pgrp) =>
+          new Property(prop, pgrp.map(t => {
+            val line = cu.getLineNumber(t.getLocation)
+            val col = cu.getColumnNumber(t.getLocation)
+            // TODO: This seems redundant (??)
+            new ExternalLine(line, col, col + t.getLength)
+          }).toList)
+        }.toSet
+
+        new ExternalType(typ, lineList, propSet)
+
+      }
+    }.toSet)
+      // Convert it back to a set of top level ExternalTypeReference object
+      .map(extSet => new ExternalTypeReference(repoId, fileName, extSet, score))
+      .toSet
+    // val externalTypeRef =
 
     _imports = Option(scbr.getImports.toSet)
-    // _searchableRefs = Option(externalTypeRef)
-
+    _searchableRefs = Option(externalTypeRefs)
     _fileMetaData = ???
-    ???
   }
 
   def isTestFile(): Boolean = imports.exists(_.contains("org.junit"))

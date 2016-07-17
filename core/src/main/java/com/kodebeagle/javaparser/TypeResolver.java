@@ -94,7 +94,7 @@ public class TypeResolver extends ASTVisitor {
 	private Map<ASTNode, String> nodeTypeBinding = Maps.newIdentityHashMap();
 
 	/**
-	 * For each importdeclaration node stores the type binding.
+	 * For each import declaration node stores the type binding.
 	 */
 	private Map<ASTNode, String> importsDeclarationNode = Maps.newIdentityHashMap();
 
@@ -102,8 +102,6 @@ public class TypeResolver extends ASTVisitor {
 	 * Contains the types of the variables at each scope.
 	 */
 	private Map<Integer, String> variableTypes = Maps.newTreeMap();
-
-	final Map<String, Integer> bindingsCopy = Maps.newTreeMap();
 
 	/**
 	 * Map of binding Id and variable definition node.
@@ -258,6 +256,7 @@ public class TypeResolver extends ASTVisitor {
 	public void preVisit(final ASTNode node) {
 		final ASTNode parent = node.getParent();
 		if (parent != null && nodeScopes.containsKey(parent)) {
+			Map<String, Integer> bindingsCopy = Maps.newTreeMap();
 			// inherit all variables in parent scope
 			for (final Entry<String, Integer> binding : nodeScopes.get(parent)
 					.entrySet()) {
