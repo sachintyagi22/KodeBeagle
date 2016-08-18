@@ -123,7 +123,7 @@ public class MethodInvocationResolver extends TypeResolver {
         if (!typesInFile.isEmpty()) {
             String qualifiedTypeName = Joiner.on(".").skipNulls().join(typesInFile);
             String typeName = typesInFile.pop();
-            types.put(typeName, currentPackage + "." + qualifiedTypeName);
+            types.put(typeName, getFullyQualifiedNameFor(currentPackage, qualifiedTypeName));
         }
         super.endVisit(td);
     }
@@ -227,13 +227,13 @@ public class MethodInvocationResolver extends TypeResolver {
         if (!typesInFile.isEmpty()) {
             String qualifiedTypeName = Joiner.on(".").skipNulls().join(typesInFile);
             String typeName = typesInFile.pop();
-            types.put(typeName, currentPackage + "." + qualifiedTypeName);
+            types.put(typeName, getFullyQualifiedNameFor(currentPackage, qualifiedTypeName));
         }
         super.endVisit(ed);
     }
 
     private void addTypeDoc(AbstractTypeDeclaration ed, String typeFullyQualifiedName) {
-        String fullTypeName = currentPackage + "." + typeFullyQualifiedName;
+        String fullTypeName = getFullyQualifiedNameFor(currentPackage, typeFullyQualifiedName);
         String docComment = "";
         if (ed.getJavadoc() != null) {
             docComment = ed.getJavadoc().toString();
@@ -244,7 +244,7 @@ public class MethodInvocationResolver extends TypeResolver {
     private void addMethodDoc(MethodDeclaration node) {
         if (node.getJavadoc() != null && node.getParent() instanceof AbstractTypeDeclaration) {
             String typeName = ((AbstractTypeDeclaration) node.getParent()).getName().getFullyQualifiedName();
-            String fullTypeName = currentPackage + "." + removeSpecialSymbols(typeName);
+            String fullTypeName = getFullyQualifiedNameFor(currentPackage, removeSpecialSymbols(typeName));
             TypeJavadoc typeJavadoc = typeJavadocs.get(fullTypeName);
             if (typeJavadoc != null) {
                 typeJavadoc.getMethodJavadocs().add(
@@ -280,8 +280,8 @@ public class MethodInvocationResolver extends TypeResolver {
     }
 
     private MethodDecl getMethodDecl(MethodDeclaration node) {
-        String qualifiedTypeName = currentPackage + "."
-                + Joiner.on(".").skipNulls().join(typesInFile);
+        String qualifiedTypeName = getFullyQualifiedNameFor(currentPackage,
+                Joiner.on(".").skipNulls().join(typesInFile));
         SimpleName nameNode = node.getName();
         String methodName = nameNode.toString();
         String returnType = "";
@@ -314,7 +314,7 @@ public class MethodInvocationResolver extends TypeResolver {
         String targetType = "";
         if (target != null && !target.isEmpty()) {
             if (target.equals("this")) {
-                targetType = currentPackage + "." + Joiner.on(".").join(typesInFile);
+                targetType = getFullyQualifiedNameFor(currentPackage, Joiner.on(".").join(typesInFile));
             } else {
                 final Integer variableId = scopeBindings.get(target);
                 if (variableId == null

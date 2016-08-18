@@ -36,6 +36,7 @@ class TypeAggregator() extends Serializable {
   var varNames: mutable.Map[String, Int] = mutable.Map.empty[String, Int]
   val methods: mutable.Set[MethodType] = mutable.Set.empty[MethodType]
   val methodCount: mutable.Map[(String, Int), Int] = mutable.Map.empty[(String, Int), Int]
+  val r = scala.util.Random
 
   def merge(other: TypeAggregator): TypeAggregator = {
     score += other.score
@@ -65,10 +66,11 @@ class TypeAggregator() extends Serializable {
   def merge(vars: Set[String], ms: Set[MethodType], repo: String, file: String): TypeAggregator = {
     score += 1
     // removing the constructor invocations
-    mergeMethods(ms.filter(e => !e.isConstructor))
+    val msSansConstructor = ms.filter(e => !e.isConstructor)
+    mergeMethods(msSansConstructor)
     vars.foreach(e => varNames.update(e, varNames.getOrElse(e, 0) + 1))
     usedInReposCount.update(repo, usedInReposCount.getOrElse(repo, 0) + 1)
-    ms.foreach(m => {
+    msSansConstructor.foreach(m => {
       // Only if this method is not a decl, it counts towards usage.
       m.isDeclared match {
         case false => methodCount.update((m.methodName, m.argTypes.size),
@@ -152,8 +154,7 @@ class TypeAggregator() extends Serializable {
   }
 
   def randomString(): String = {
-    val r = scala.util.Random
-    r.nextInt(10000).toString
+    r.nextInt(10).toString + r.nextString(4)
   }
 
   def result(typeName: String): TypeAggregation = {
@@ -167,10 +168,15 @@ class TypeAggregator() extends Serializable {
       s"$typeprefix $methodprefix $methodText"
     }).toSet
 
+    val methodNameVsTypeMap = methods.map(e =>
+      ((e.methodName, e.argTypes.length), e.argTypes)).toMap
+
+    getCombinations(typeName)
     TypeAggregation(typeName, score,
       context = tokens.slice(0, tokens.length - 1).toSet,
       typeSuggest = CompletionSuggest(
-        camelCasePattern.split(typeName).toSet[String].map(e => s"$e$randomString") + typeName,
+        camelCasePattern.split(typeName).toSet[String].map(e => s"$e$randomString")
+          ++ getCombinations(typeName),
         typeName, score),
       methodSuggest = PayloadCompletionSuggest(
         methods.map(_.methodName).toSet, score,
@@ -178,10 +184,25 @@ class TypeAggregator() extends Serializable {
         """{"type": """" + typeName + """"}"""),
       searchText = srchText,
       vars = varNames.filter(!_._1.isEmpty).map(e => VarCount(e._1, e._2)).toSet,
-      methods = methodCount.map(e => MethodCount(e._1._1, e._1._2, e._2)).toSet,
+      methods = methodCount.map(e =>
+        MethodCount(e._1._1, e._1._2, methodNameVsTypeMap.getOrElse((e._1._1, e._1._2),
+          List.empty), e._2)).toList.sortBy(-_.count),
       declaredInFile.getOrElse(""),
       declaredInRepo.getOrElse(""),
       usedInReposCount.map(e => RepoCount(e._1, e._2)).toSet)
+  }
+
+  def getCombinations(typeName: String): Set[String] = {
+    val elmArray = typeName.split("\\.")
+    val allCombos = mutable.Set.empty[String]
+    def fillCombinations(elms: List[String], result: mutable.Set[String]): Unit = {
+      if (!elms.isEmpty) {
+        result.add(elms.mkString("."))
+        fillCombinations(elms.tail, result)
+      }
+    }
+    fillCombinations(elmArray.toList, allCombos)
+    allCombos.toSet
   }
 }
 
@@ -207,12 +228,12 @@ case class TypeAggregation(name: String, score: Int, context: Set[String],
                            typeSuggest: CompletionSuggest,
                            methodSuggest: PayloadCompletionSuggest,
                            searchText: Set[String], vars: Set[VarCount],
-                           methods: Set[MethodCount],
+                           methods: List[MethodCount],
                            declInFile: String,
                            declInRepo: String,
                            repoCounts: Set[RepoCount])
 
-case class MethodCount(name: String, params: Int, count: Int)
+case class MethodCount(name: String, params: Int, pTypes: List[String], count: Int)
 
 case class RepoCount(name: String, count: Int)
 
