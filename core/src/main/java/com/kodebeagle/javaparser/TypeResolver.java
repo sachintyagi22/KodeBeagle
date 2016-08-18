@@ -213,7 +213,7 @@ public class TypeResolver extends ASTVisitor {
         return getFullyQualifiedNameFor(currentPackage ,className);
     }
 
-    public final String getFullyQualifiedNameFor(final String className, String packageName) {
+    public final String getFullyQualifiedNameFor(final String packageName, final String className) {
         if (packageName != null && !packageName.isEmpty())
             return packageName + "." + className;
         else
